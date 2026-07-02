@@ -28,8 +28,22 @@ def call_ollama(prompt):
     except requests.exceptions.RequestException as exc:
         raise RuntimeError(f"Unable to reach Ollama: {exc}") from exc
 
-    data = response.json()
-    return data.get("message", {}).get("content", "").strip()
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise RuntimeError(f"Invalid JSON response from Ollama: {exc}") from exc
+
+    # Ollama's response payload may vary; defensively extract content
+    # Common structure: { "message": { "content": "..." } }
+    message = data.get("message") if isinstance(data, dict) else None
+    if isinstance(message, dict):
+        return str(message.get("content", "")).strip()
+
+    # Fallback: try to extract a top-level 'content' or return full body
+    if isinstance(data, dict) and "content" in data:
+        return str(data.get("content", "")).strip()
+
+    return str(data).strip()
 
 
 def prepare_meeting():
@@ -37,15 +51,63 @@ def prepare_meeting():
     if not notes:
         return "No notes were found in the notes folder, so there is nothing to summarize."
 
-    note_text = "\n\n".join(f"Note: {name}\n{read_note(name)}" for name in notes)
+    collected = []
+    skipped = []
+    for name in notes:
+        try:
+            content = read_note(name)
+            collected.append(f"Note: {name}\n{content}")
+        except Exception:
+            skipped.append(name)
+
+    if not collected:
+        return "Found notes, but none could be read. Check file permissions."
+
+    note_text = "\n\n".join(collected)
     prompt = (
         "Based on the following meeting notes, generate:\n"
         "- a meeting summary\n"
         "- talking points\n"
         "- action items\n\n"
-        f"{note_text}"
+        f"{note_text}\n\n"
+        + (f"(Skipped unreadable notes: {', '.join(skipped)})" if skipped else "")
     )
-    return call_ollama(prompt)
+
+    try:
+        return call_ollama(prompt)
+    except RuntimeError:
+        raise
+
+
+def write_follow_up_email():
+    notes = list_notes()
+    if not notes:
+        return "No notes found in the notes folder to generate a follow-up email."
+
+    # Determine most recently modified note file
+    note_paths = [NOTES_DIR / name for name in notes]
+    try:
+        latest = max(note_paths, key=lambda p: p.stat().st_mtime)
+    except Exception:
+        latest = note_paths[0]
+
+    filename = latest.name
+    try:
+        note_content = read_note(filename)
+    except Exception as exc:
+        return f"Unable to read the latest note '{filename}': {exc}"
+
+    prompt = (
+        f"You are a professional assistant. Write a concise, professional follow-up email "
+        f"based on the meeting note titled '{filename}'. Include a greeting, a brief summary, "
+        "action items/next steps, and a polite closing. Keep it suitable for a business audience.\n\n"
+        f"Meeting note:\n{note_content}\n\n"
+    )
+
+    try:
+        return call_ollama(prompt)
+    except RuntimeError:
+        raise
 
 
 def main():
@@ -85,6 +147,15 @@ def main():
         if command == "prepare meeting":
             try:
                 response = prepare_meeting()
+            except RuntimeError as exc:
+                print(f"Error: {exc}")
+            else:
+                print(f"Assistant: {response}")
+            continue
+
+        if command in {"write follow up email", "write follow-up email"}:
+            try:
+                response = write_follow_up_email()
             except RuntimeError as exc:
                 print(f"Error: {exc}")
             else:
