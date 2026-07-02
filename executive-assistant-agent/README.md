@@ -36,7 +36,7 @@ ollama pull llama3
 pip install -r requirements.txt
 ```
 
-## Run the agent
+## Run the agentwwwwwwww
 
 ```bash
 python agent.py
