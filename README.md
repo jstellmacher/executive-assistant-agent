@@ -5,6 +5,7 @@ This project is a simple CLI-based executive assistant that uses a local Ollama 
 ## What this project does
 
 The agent can:
+
 - list notes stored in the notes folder
 - read a specific note
 - send general prompts to a local LLM
@@ -36,7 +37,7 @@ ollama pull llama3
 pip install -r requirements.txt
 ```
 
-## Run the agentwwwwwwww
+## Run the agent
 
 ```bash
 python agent.py
